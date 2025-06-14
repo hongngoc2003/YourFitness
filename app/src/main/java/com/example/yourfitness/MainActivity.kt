@@ -18,22 +18,45 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import android.Manifest
 import android.content.ContentValues
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.IOException
+import android.annotation.SuppressLint
+import android.util.Log
+import android.graphics.Matrix
+import androidx.cardview.widget.CardView
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var imageView: ImageView
-    private lateinit var galleryBtn: Button
-    private lateinit var cameraBtn: Button
 
-    //TODO get the image from gallery and display it
-    var galleryActivityResultLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(), ActivityResultCallback {
-            if (it.resultCode === RESULT_OK) {
-                val image_uri: Uri? = it.data?.data
-                imageView.setImageURI(image_uri)
+    var galleryCard: CardView? = null
+    var cameraCard: CardView? = null
+    var imageView: ImageView? = null
+    var image_uri: Uri? = null
+    val PERMISSION_CODE = 100
+
+    // Gallery Activity Result
+    private val galleryActivityResultLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+        ActivityResultCallback { result ->
+            if (result != null && result.resultCode == RESULT_OK) {
+                image_uri = result.data!!.data
+                val inputImage = uriToBitmap(image_uri!!)
+                val rotated = rotateBitmap(inputImage)
+                imageView!!.setImageBitmap(rotated)
             }
-        }
-    )
+        })
+
+    // Camera Activity Result
+    private val cameraActivityResultLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+        ActivityResultCallback { result ->
+            if (result.resultCode == RESULT_OK) {
+                val inputImage = uriToBitmap(image_uri!!)
+                val rotated = rotateBitmap(inputImage)
+                imageView!!.setImageBitmap(rotated)
+            }
+        })
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,30 +68,34 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
+        // Initialize views
+        galleryCard = findViewById(R.id.galleryCard)
+        cameraCard = findViewById(R.id.cameraCard)
         imageView = findViewById(R.id.imageView)
-        galleryBtn = findViewById(R.id.button)
-        cameraBtn = findViewById(R.id.button2)
+
+        // Check and request permissions
+        checkAndRequestPermissions()
 
         //TODO chose image from gallery
-        galleryBtn.setOnClickListener {
+        // Pick from gallery
+        galleryCard!!.setOnClickListener {
             val galleryIntent =
                 Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
             galleryActivityResultLauncher.launch(galleryIntent)
         }
 
-        checkAndRequestPermissions()
-
         // Capture from camera
-        cameraBtn!!.setOnClickListener {
+        cameraCard!!.setOnClickListener {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED
             ) {
                 openCamera()
             } else {
-                requestPermissions(arrayOf(Manifest.permission.CAMERA), 1211)
+                requestPermissions(arrayOf(Manifest.permission.CAMERA), PERMISSION_CODE)
             }
         }
     }
+
     private fun checkAndRequestPermissions() {
         val permissionsToRequest = mutableListOf<String>()
 
@@ -99,7 +126,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    var image_uri: Uri? = null
     private fun openCamera() {
         val values = ContentValues()
         values.put(MediaStore.Images.Media.TITLE, "New Picture")
@@ -109,10 +135,42 @@ class MainActivity : AppCompatActivity() {
         cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, image_uri)
         cameraActivityResultLauncher.launch(cameraIntent)
     }
-    // Camera Activity Result
-    private val cameraActivityResultLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-        ActivityResultCallback { it ->
-            imageView.setImageURI(image_uri)
-        })
+
+    //TODO takes URI of the image and returns bitmap
+    private fun uriToBitmap(selectedFileUri: Uri): Bitmap? {
+        return try {
+            val parcelFileDescriptor = contentResolver.openFileDescriptor(selectedFileUri, "r")
+            val fileDescriptor = parcelFileDescriptor!!.fileDescriptor
+            val image = BitmapFactory.decodeFileDescriptor(fileDescriptor)
+            parcelFileDescriptor.close()
+            image
+        } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        }
+    }
+    //TODO rotate image if image captured on samsung devices
+//TODO Most phone cameras are landscape, meaning if you take the photo in portrait, the resulting photos will be rotated 90 degrees.
+    @SuppressLint("Range")
+    fun rotateBitmap(input: Bitmap?): Bitmap {
+        val orientationColumn = arrayOf(MediaStore.Images.Media.ORIENTATION)
+        val cur = contentResolver.query(image_uri!!, orientationColumn, null, null, null)
+        var orientation = -1
+        if (cur != null && cur.moveToFirst()) {
+            orientation = cur.getInt(cur.getColumnIndex(orientationColumn[0]))
+            cur.close()
+        }
+        Log.d("tryOrientation", orientation.toString() + "")
+        val rotationMatrix = Matrix()
+        rotationMatrix.setRotate(orientation.toFloat())
+        return Bitmap.createBitmap(
+            input!!,
+            0,
+            0,
+            input.width,
+            input.height,
+            rotationMatrix,
+            true
+        )
+    }
 }
