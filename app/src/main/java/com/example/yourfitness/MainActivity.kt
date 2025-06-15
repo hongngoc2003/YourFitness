@@ -25,6 +25,9 @@ import android.annotation.SuppressLint
 import android.util.Log
 import android.graphics.Matrix
 import androidx.cardview.widget.CardView
+import com.google.mlkit.vision.pose.accurate.AccuratePoseDetectorOptions
+import com.google.mlkit.vision.pose.PoseDetection
+import com.google.mlkit.vision.common.InputImage
 
 class MainActivity : AppCompatActivity() {
 
@@ -44,6 +47,7 @@ class MainActivity : AppCompatActivity() {
                 val inputImage = uriToBitmap(image_uri!!)
                 val rotated = rotateBitmap(inputImage)
                 imageView!!.setImageBitmap(rotated)
+                performPoseDetection(rotated)
             }
         })
 
@@ -55,8 +59,29 @@ class MainActivity : AppCompatActivity() {
                 val inputImage = uriToBitmap(image_uri!!)
                 val rotated = rotateBitmap(inputImage)
                 imageView!!.setImageBitmap(rotated)
+                performPoseDetection(rotated)
             }
         })
+
+    // Accurate pose detector on static images, when depending on the pose-detection-accurate sdk
+    val options = AccuratePoseDetectorOptions.Builder()
+        .setDetectorMode(AccuratePoseDetectorOptions.SINGLE_IMAGE_MODE)
+        .build()
+    val poseDetector = PoseDetection.getClient(options)
+
+    fun performPoseDetection(inputBmp: Bitmap) {
+        val image = InputImage.fromBitmap(inputBmp, 0)
+        poseDetector.process(image)
+            .addOnSuccessListener { results ->
+                // Task completed successfully
+                // ...
+                Log.d("pose", results.allPoseLandmarks.size.toString())
+            }
+            .addOnFailureListener { e ->
+                // Task failed with an exception
+                // ...
+            }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -174,3 +199,4 @@ class MainActivity : AppCompatActivity() {
         )
     }
 }
+
