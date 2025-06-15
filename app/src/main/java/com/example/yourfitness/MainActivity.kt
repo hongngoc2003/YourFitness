@@ -4,11 +4,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.MediaStore
-import android.widget.Button
 import android.widget.ImageView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultCallback
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -32,6 +30,10 @@ import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.pose.Pose
 import android.graphics.Color
+import android.widget.TextView
+import com.google.mlkit.vision.pose.PoseLandmark
+import kotlin.math.abs
+import kotlin.math.atan2
 
 class MainActivity : AppCompatActivity() {
 
@@ -39,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     var galleryCard: CardView? = null
     var cameraCard: CardView? = null
     var imageView: ImageView? = null
+    var resultTV: TextView? = null
     var image_uri: Uri? = null
     val PERMISSION_CODE = 100
 
@@ -97,12 +100,51 @@ class MainActivity : AppCompatActivity() {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 3f
 
+        var paintLeft = Paint()
+        paintLeft.color = Color.BLUE
+        paintLeft.style = Paint.Style.STROKE
+        paintLeft.strokeWidth = 5f
+
+        var paintRight = Paint()
+        paintRight.color = Color.YELLOW
+        paintRight.style = Paint.Style.STROKE
+        paintRight.strokeWidth = 5f
+
         pose.allPoseLandmarks.forEach{
             canvas.drawPoint(it.position.x, it.position.y, paint)
         }
 
-        imageView?.setImageBitmap(mutable)
+        // DRAW ARMS
+        drawPoseLines(pose, canvas,PoseLandmark.LEFT_WRIST, PoseLandmark.LEFT_ELBOW, paintLeft)
+        drawPoseLines(pose, canvas,PoseLandmark.LEFT_ELBOW, PoseLandmark.LEFT_SHOULDER, paintLeft)
+        drawPoseLines(pose, canvas,PoseLandmark.RIGHT_WRIST, PoseLandmark.RIGHT_ELBOW, paintRight)
+        drawPoseLines(pose, canvas,PoseLandmark.RIGHT_ELBOW, PoseLandmark.RIGHT_SHOULDER, paintRight)
 
+        // DRAW LEGS
+        drawPoseLines(pose, canvas,PoseLandmark.LEFT_HIP, PoseLandmark.LEFT_KNEE, paintLeft)
+        drawPoseLines(pose, canvas,PoseLandmark.LEFT_KNEE, PoseLandmark.LEFT_ANKLE, paintLeft)
+        drawPoseLines(pose, canvas,PoseLandmark.RIGHT_HIP, PoseLandmark.RIGHT_KNEE, paintRight)
+        drawPoseLines(pose, canvas,PoseLandmark.RIGHT_KNEE, PoseLandmark.RIGHT_ANKLE, paintRight)
+
+        // DRAW BODY
+        drawPoseLines(pose, canvas,PoseLandmark.LEFT_SHOULDER, PoseLandmark.RIGHT_SHOULDER, paintLeft)
+        drawPoseLines(pose, canvas,PoseLandmark.LEFT_HIP, PoseLandmark.RIGHT_HIP, paintLeft)
+        drawPoseLines(pose, canvas,PoseLandmark.LEFT_HIP, PoseLandmark.LEFT_SHOULDER, paintLeft)
+        drawPoseLines(pose, canvas,PoseLandmark.RIGHT_HIP, PoseLandmark.RIGHT_SHOULDER, paintRight)
+
+        imageView?.setImageBitmap(mutable);
+        val result = validateDownwardDog(pose);
+        resultTV?.setText(result)
+        Log.d("tryRes",result)
+    }
+
+    fun drawPoseLines(pose: Pose, canvas: Canvas, startPoint: Int, endPoint: Int, paint: Paint) {
+        var pointStart = pose.getPoseLandmark(startPoint)
+        var pointEnd = pose.getPoseLandmark(endPoint)
+
+        if (pointStart != null && pointEnd != null) {
+            canvas.drawLine(pointStart.position.x, pointStart.position.y, pointEnd.position.x, pointEnd.position.y, paint)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,6 +161,7 @@ class MainActivity : AppCompatActivity() {
         galleryCard = findViewById(R.id.galleryCard)
         cameraCard = findViewById(R.id.cameraCard)
         imageView = findViewById(R.id.imageView)
+        resultTV = findViewById(R.id.textViewRes)
 
         // Check and request permissions
         checkAndRequestPermissions()
@@ -219,6 +262,85 @@ class MainActivity : AppCompatActivity() {
             rotationMatrix,
             true
         )
+    }
+
+    fun validateDownwardDog(pose: Pose): String {
+        // Extract landmarks
+        val leftWrist = pose.getPoseLandmark(PoseLandmark.LEFT_WRIST)
+        val rightWrist = pose.getPoseLandmark(PoseLandmark.RIGHT_WRIST)
+        val leftElbow = pose.getPoseLandmark(PoseLandmark.LEFT_ELBOW)
+        val rightElbow = pose.getPoseLandmark(PoseLandmark.RIGHT_ELBOW)
+        val leftShoulder = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
+        val rightShoulder = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
+        val leftHip = pose.getPoseLandmark(PoseLandmark.LEFT_HIP)
+        val rightHip = pose.getPoseLandmark(PoseLandmark.RIGHT_HIP)
+        val leftKnee = pose.getPoseLandmark(PoseLandmark.LEFT_KNEE)
+        val rightKnee = pose.getPoseLandmark(PoseLandmark.RIGHT_KNEE)
+        val leftAnkle = pose.getPoseLandmark(PoseLandmark.LEFT_ANKLE)
+        val rightAnkle = pose.getPoseLandmark(PoseLandmark.RIGHT_ANKLE)
+
+        // Ensure all landmarks are detected
+        val landmarks = listOf(
+            leftWrist, rightWrist, leftElbow, rightElbow, leftShoulder,
+            rightShoulder, leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle
+        )
+
+        if (landmarks.any { it == null }) {
+            return "Unable to detect full body. Ensure hands and feet are visible."
+        }
+
+        // Calculate angles
+        val leftArmAngle = calculateAngle(leftWrist!!, leftElbow!!, leftShoulder!!)
+        val rightArmAngle = calculateAngle(rightWrist!!, rightElbow!!, rightShoulder!!)
+        val leftLegAngle = calculateAngle(leftHip!!, leftKnee!!, leftAnkle!!)
+        val rightLegAngle = calculateAngle(rightHip!!, rightKnee!!, rightAnkle!!)
+
+        val armsStraight = (leftArmAngle in 130.0..200.0) && (rightArmAngle in 130.0..200.0)
+        val legsStraight = (leftLegAngle in 130.0..190.0) && (rightLegAngle in 130.0..190.0)
+
+        Log.d("PoseDebug", "Arms straight: $armsStraight | Left arm: $leftArmAngle | Right arm: $rightArmAngle")
+        Log.d("PoseDebug", "Legs straight: $legsStraight | Left leg: $leftLegAngle | Right leg: $rightLegAngle")
+
+        if (!armsStraight) {
+            return "Great effort! Try straightening your arms a little more."
+        }
+
+        if (!legsStraight) {
+            return "You're almost there! Straighten your legs a bit for a deeper stretch."
+        }
+
+        // Hip should be above shoulders
+        if (leftHip!!.position.y > leftShoulder!!.position.y || rightHip!!.position.y > rightShoulder!!.position.y) {
+            return "Nice work! Try lifting your hips higher to form an inverted V shape."
+        }
+
+        // Optional heel position check
+        // val heelsTouching = abs(leftAnkle.position.y - leftKnee.position.y) < 20 &&
+        //                     abs(rightAnkle.position.y - rightKnee.position.y) < 20
+        // if (!heelsTouching) {
+        //     return "Good job! Over time, work towards lowering your heels for a deeper stretch."
+        // }
+
+        return "Perfect! Your Downward Dog pose looks amazing!"
+    }
+
+    fun calculateAngle(firstPoint: PoseLandmark, midPoint: PoseLandmark, lastPoint: PoseLandmark): Double {
+        val result = Math.toDegrees(
+            (atan2(
+                lastPoint.position.y - midPoint.position.y,
+                lastPoint.position.x - midPoint.position.x
+            ) -
+                    atan2(
+                        firstPoint.position.y - midPoint.position.y,
+                        firstPoint.position.x - midPoint.position.x
+                    )).toDouble()
+        ).let { angle ->
+            abs(angle).let {
+                if (it > 180) 360 - it else it
+            }
+        }
+
+        return result
     }
 }
 
