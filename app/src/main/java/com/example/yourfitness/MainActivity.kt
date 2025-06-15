@@ -22,12 +22,16 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.IOException
 import android.annotation.SuppressLint
+import android.graphics.Canvas
 import android.util.Log
 import android.graphics.Matrix
+import android.graphics.Paint
 import androidx.cardview.widget.CardView
 import com.google.mlkit.vision.pose.accurate.AccuratePoseDetectorOptions
 import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.pose.Pose
+import android.graphics.Color
 
 class MainActivity : AppCompatActivity() {
 
@@ -76,11 +80,29 @@ class MainActivity : AppCompatActivity() {
                 // Task completed successfully
                 // ...
                 Log.d("pose", results.allPoseLandmarks.size.toString())
+                drawPose(inputBmp, results)
             }
             .addOnFailureListener { e ->
                 // Task failed with an exception
                 // ...
             }
+    }
+
+    fun drawPose(inputBmp: Bitmap, pose: Pose) {
+        var mutable = inputBmp.copy(Bitmap.Config.ARGB_8888, true)
+        var canvas = Canvas(mutable)
+
+        var paint = Paint()
+        paint.color = Color.RED
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 3f
+
+        pose.allPoseLandmarks.forEach{
+            canvas.drawPoint(it.position.x, it.position.y, paint)
+        }
+
+        imageView?.setImageBitmap(mutable)
+
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
